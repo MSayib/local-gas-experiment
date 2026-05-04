@@ -11,10 +11,8 @@ import { GasApiClient } from './GasApiClient';
 
 function detectEnvironment(): 'gas' | 'local' {
   try {
-    return typeof (globalThis as Record<string, unknown>).google !== 'undefined' &&
-      (globalThis as Record<string, Record<string, unknown>>).google?.script
-      ? 'gas'
-      : 'local';
+    const g = globalThis as unknown as Record<string, Record<string, unknown> | undefined>;
+    return typeof g.google !== 'undefined' && g.google?.script ? 'gas' : 'local';
   } catch {
     return 'local';
   }

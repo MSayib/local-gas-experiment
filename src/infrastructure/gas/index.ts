@@ -50,37 +50,36 @@ function doGet(): GoogleAppsScript.HTML.HtmlOutput {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
-function getProducts(): Record<string, unknown>[] {
-  const products = container().getProducts.execute();
-  // GAS V8 handles async/await — resolves synchronously in this context
-  return (products as unknown as import('@domain/entities/Product').Product[]).map(p => p.toJSON());
+async function getProducts(): Promise<Record<string, unknown>[]> {
+  const products = await container().getProducts.execute();
+  return products.map(p => p.toJSON());
 }
 
-function createProduct(input: { sku: string; name: string; price: number; unit: string }): Record<string, unknown> {
-  const product = container().createProduct.execute(input);
-  return (product as unknown as import('@domain/entities/Product').Product).toJSON();
+async function createProduct(input: { sku: string; name: string; price: number; unit: string }): Promise<Record<string, unknown>> {
+  const product = await container().createProduct.execute(input);
+  return product.toJSON();
 }
 
-function recordStockIn(input: { productId: string; quantity: number; reference: string; notes?: string }): Record<string, unknown> {
-  const movement = container().recordStockIn.execute(input);
-  return (movement as unknown as import('@domain/entities/StockMovement').StockMovement).toJSON();
+async function recordStockIn(input: { productId: string; quantity: number; reference: string; notes?: string }): Promise<Record<string, unknown>> {
+  const movement = await container().recordStockIn.execute(input);
+  return movement.toJSON();
 }
 
-function recordStockOut(input: { productId: string; quantity: number; reference: string; notes?: string }): Record<string, unknown> {
-  const movement = container().recordStockOut.execute(input);
-  return (movement as unknown as import('@domain/entities/StockMovement').StockMovement).toJSON();
+async function recordStockOut(input: { productId: string; quantity: number; reference: string; notes?: string }): Promise<Record<string, unknown>> {
+  const movement = await container().recordStockOut.execute(input);
+  return movement.toJSON();
 }
 
-function getStockSummary(): Record<string, unknown> {
-  return container().getStockSummary.execute() as unknown as Record<string, unknown>;
+async function getStockSummary(): Promise<Record<string, unknown>> {
+  return await container().getStockSummary.execute() as unknown as Record<string, unknown>;
 }
 
-function getStockMovements(productId?: string): Record<string, unknown>[] {
+async function getStockMovements(productId?: string): Promise<Record<string, unknown>[]> {
   const c = container();
   const movements = productId
-    ? c.stockMovementRepo.findByProductId(productId)
-    : c.stockMovementRepo.findAll();
-  return (movements as unknown as import('@domain/entities/StockMovement').StockMovement[]).map(m => m.toJSON());
+    ? await c.stockMovementRepo.findByProductId(productId)
+    : await c.stockMovementRepo.findAll();
+  return movements.map(m => m.toJSON());
 }
 
 // ============================================

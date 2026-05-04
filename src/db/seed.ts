@@ -1,19 +1,36 @@
 /**
- * Seed Script — Insert sample data into local PostgreSQL.
+ * Seed Script — Insert sample data into database.
  *
- * Run: bun src/db/seed.ts
+ * Usage:
+ *   bun src/db/seed.ts          → local PostgreSQL
+ *   bun src/db/seed.ts --prod   → production CockroachDB
  */
 
 import 'dotenv/config';
 import { Pool } from 'pg';
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT) || 5433,
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'password',
-  database: process.env.DB_NAME || 'gas_experiment',
-});
+const isProd = process.argv.includes('--prod');
+
+function createPool(): Pool {
+  if (isProd) {
+    const url = process.env.DB_PROD_URL;
+    if (!url || url.includes('YOUR_USER')) {
+      console.error('❌ DB_PROD_URL belum diisi di .env');
+      process.exit(1);
+    }
+    return new Pool({ connectionString: url });
+  }
+
+  return new Pool({
+    host: process.env.DB_HOST || 'localhost',
+    port: Number(process.env.DB_PORT) || 5433,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'password',
+    database: process.env.DB_NAME || 'gas_experiment',
+  });
+}
+
+const pool = createPool();
 
 const products = [
   { sku: 'SKU-001', name: 'Baut M8x20', price: 500, unit: 'pcs', stock: 1500 },
@@ -24,7 +41,8 @@ const products = [
 ];
 
 async function seed() {
-  console.log('🌱 Seeding database...\n');
+  const target = isProd ? '🔴 PRODUCTION (CockroachDB)' : '🟢 LOCAL (PostgreSQL)';
+  console.log(`🌱 Seeding ${target}...\n`);
 
   // Clear existing data
   await pool.query('DELETE FROM stock_movements');
@@ -41,7 +59,7 @@ async function seed() {
   }
 
   // Insert sample stock movements
-  const result = await pool.query('SELECT id, sku FROM products LIMIT 2');
+  const result = await pool.query('SELECT id, sku FROM products ORDER BY sku LIMIT 2');
   const [product1, product2] = result.rows;
 
   if (product1) {
@@ -64,7 +82,7 @@ async function seed() {
     console.log(`   ✅ Stock movements for ${product2.sku}`);
   }
 
-  console.log('\n✅ Seed complete!');
+  console.log(`\n✅ Seed complete! (${target})`);
   await pool.end();
 }
 

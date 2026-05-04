@@ -39,9 +39,10 @@ export class JdbcDatabaseGateway implements DatabasePort {
       ? this.prepareStatement(sql, params)
       : this.conn.createStatement();
 
+    const jdbcSql = this.toJdbcSql(sql);
     const rs = params
       ? (stmt as GoogleAppsScript.JDBC.JdbcPreparedStatement).executeQuery()
-      : (stmt as GoogleAppsScript.JDBC.JdbcStatement).executeQuery(sql);
+      : (stmt as GoogleAppsScript.JDBC.JdbcStatement).executeQuery(jdbcSql);
 
     const rows = this.extractRows(rs);
     rs.close();
@@ -128,19 +129,53 @@ export class JdbcDatabaseGateway implements DatabasePort {
       ? this.prepareStatement(sql, params)
       : this.conn.createStatement();
 
+    const jdbcSql = this.toJdbcSql(sql);
     const affected = params
       ? (stmt as GoogleAppsScript.JDBC.JdbcPreparedStatement).executeUpdate()
-      : (stmt as GoogleAppsScript.JDBC.JdbcStatement).executeUpdate(sql);
+      : (stmt as GoogleAppsScript.JDBC.JdbcStatement).executeUpdate(jdbcSql);
 
     stmt.close();
     return { rows: [], rowCount: affected };
+  }
+
+  /**
+   * Convert PostgreSQL-style SQL to JDBC-compatible SQL:
+   * - $1, $2, ... → ?
+   * - ::int, ::float, ::text → CAST(... AS ...)
+   * - COUNT(*) FILTER (WHERE ...) → SUM(CASE WHEN ... THEN 1 ELSE 0 END)
+   */
+  private toJdbcSql(sql: string): string {
+    // Replace $N placeholders with ?
+    let result = sql.replace(/\$\d+/g, '?');
+
+    // Replace ::type casts with CAST syntax
+    // e.g., COUNT(*)::int → CAST(COUNT(*) AS INT)
+    result = result.replace(
+      /(\w+\([^)]*\))::([a-z]+)/gi,
+      'CAST($1 AS $2)'
+    );
+
+    // Replace COALESCE(...)::type
+    result = result.replace(
+      /(COALESCE\([^)]+\))::([a-z]+)/gi,
+      'CAST($1 AS $2)'
+    );
+
+    // Replace COUNT(*) FILTER (WHERE cond) → SUM(CASE WHEN cond THEN 1 ELSE 0 END)
+    result = result.replace(
+      /COUNT\(\*\)\s*FILTER\s*\(\s*WHERE\s+(.+?)\)/gi,
+      'CAST(SUM(CASE WHEN $1 THEN 1 ELSE 0 END) AS INT)'
+    );
+
+    return result;
   }
 
   private prepareStatement(
     sql: string,
     params: unknown[]
   ): GoogleAppsScript.JDBC.JdbcPreparedStatement {
-    const stmt = this.conn.prepareStatement(sql);
+    const jdbcSql = this.toJdbcSql(sql);
+    const stmt = this.conn.prepareStatement(jdbcSql);
     params.forEach((p, i) => {
       if (p === null || p === undefined) {
         stmt.setNull(i + 1, 0);

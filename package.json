@@ -14,8 +14,10 @@
     "type-check": "tsc --noEmit",
     "deploy": "bun run build && npx clasp push --force",
     "db:migrate": "dbmate --migrations-dir db/migrations up",
+    "db:migrate:prod": "bun src/db/migrate-prod.ts up",
     "db:rollback": "dbmate --migrations-dir db/migrations down",
     "db:status": "dbmate --migrations-dir db/migrations status",
+    "db:status:prod": "bun src/db/migrate-prod.ts status",
     "db:seed": "bun src/db/seed.ts"
   },
   "devDependencies": {

@@ -7,14 +7,49 @@
  * Run: bun --watch src/server/local/index.ts
  */
 
+import 'dotenv/config';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { Product } from '@domain/entities/Product';
-import { Money } from '@domain/entities/common/ValueObjects';
+
+// --- Infrastructure ---
+import { PgDatabaseGateway } from '@adapters/gateways/PgDatabaseGateway';
+import { SqlProductRepository } from '@adapters/repositories/SqlProductRepository';
+import { SqlStockMovementRepository } from '@adapters/repositories/SqlStockMovementRepository';
+
+// --- Use Cases ---
+import { GetProductsUseCase } from '@application/use-cases/warehouse/GetProductsUseCase';
+import { CreateProductUseCase } from '@application/use-cases/warehouse/CreateProductUseCase';
+import { RecordStockInUseCase } from '@application/use-cases/warehouse/RecordStockInUseCase';
+import { RecordStockOutUseCase } from '@application/use-cases/warehouse/RecordStockOutUseCase';
+import { GetStockSummaryUseCase } from '@application/use-cases/warehouse/GetStockSummaryUseCase';
+
+// ============================================
+// Dependency Injection
+// ============================================
+
+const db = new PgDatabaseGateway({
+  host: process.env.DB_HOST || 'localhost',
+  port: Number(process.env.DB_PORT) || 5433,
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'password',
+  database: process.env.DB_NAME || 'gas_experiment',
+});
+
+const productRepo = new SqlProductRepository(db);
+const stockMovementRepo = new SqlStockMovementRepository(db);
+
+const getProducts = new GetProductsUseCase(productRepo);
+const createProduct = new CreateProductUseCase(productRepo);
+const recordStockIn = new RecordStockInUseCase(productRepo, stockMovementRepo);
+const recordStockOut = new RecordStockOutUseCase(productRepo, stockMovementRepo);
+const getStockSummary = new GetStockSummaryUseCase(db);
+
+// ============================================
+// Hono App
+// ============================================
 
 const app = new Hono();
 
-// CORS for Vite dev server
 app.use('/*', cors({ origin: 'http://localhost:5173' }));
 
 // Health check
@@ -22,61 +57,75 @@ app.get('/api/health', (c) => {
   return c.json({ status: 'ok', environment: 'local-dev' });
 });
 
-// --- Server Functions (mirror GAS global functions) ---
+// --- Products ---
 
 app.post('/api/getProducts', async (c) => {
-  // TODO: Replace with real use case + PgDatabaseGateway in Phase 2
-  const mockProducts = [
-    new Product({
-      id: '1',
-      sku: 'SKU-001',
-      name: 'Baut M8x20',
-      price: Money.create(500),
-      unit: 'pcs',
-      stock: 1500,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }),
-    new Product({
-      id: '2',
-      sku: 'SKU-002',
-      name: 'Mur M8',
-      price: Money.create(300),
-      unit: 'pcs',
-      stock: 2000,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }),
-    new Product({
-      id: '3',
-      sku: 'SKU-003',
-      name: 'Ring Plat M8',
-      price: Money.create(200),
-      unit: 'pcs',
-      stock: 5,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    }),
-  ];
-
-  return c.json(mockProducts.map(p => p.toJSON()));
+  const products = await getProducts.execute();
+  return c.json(products.map(p => p.toJSON()));
 });
 
+app.post('/api/createProduct', async (c) => {
+  const { args } = await c.req.json();
+  const input = args[0];
+  const product = await createProduct.execute(input);
+  return c.json(product.toJSON());
+});
+
+app.post('/api/updateProduct', async (c) => {
+  const { args } = await c.req.json();
+  const [id, input] = args;
+  const product = await productRepo.update(id, input);
+  return c.json(product.toJSON());
+});
+
+app.post('/api/deleteProduct', async (c) => {
+  const { args } = await c.req.json();
+  await productRepo.delete(args[0]);
+  return c.json({ success: true });
+});
+
+// --- Stock Movements ---
+
+app.post('/api/recordStockIn', async (c) => {
+  const { args } = await c.req.json();
+  const movement = await recordStockIn.execute(args[0]);
+  return c.json(movement.toJSON());
+});
+
+app.post('/api/recordStockOut', async (c) => {
+  const { args } = await c.req.json();
+  const movement = await recordStockOut.execute(args[0]);
+  return c.json(movement.toJSON());
+});
+
+app.post('/api/getStockMovements', async (c) => {
+  const { args } = await c.req.json();
+  const productId = args?.[0];
+  const movements = productId
+    ? await stockMovementRepo.findByProductId(productId)
+    : await stockMovementRepo.findAll();
+  return c.json(movements.map(m => m.toJSON()));
+});
+
+// --- Summary ---
+
 app.post('/api/getStockSummary', async (c) => {
-  // TODO: Replace with real use case in Phase 2
-  return c.json({
-    totalProducts: 3,
-    totalStock: 3505,
-    totalValue: 1510000,
-    lowStockCount: 1,
-  });
+  const summary = await getStockSummary.execute();
+  return c.json(summary);
+});
+
+// --- Error Handler ---
+app.onError((err, c) => {
+  console.error('❌ API Error:', err.message);
+  return c.json({ error: err.message }, 400);
 });
 
 // --- Start Server ---
 console.log('🚀 Local dev server running at http://localhost:3001');
 console.log('📡 API endpoints:');
 console.log('   GET  /api/health');
-console.log('   POST /api/getProducts');
+console.log('   POST /api/getProducts, createProduct, updateProduct, deleteProduct');
+console.log('   POST /api/recordStockIn, recordStockOut, getStockMovements');
 console.log('   POST /api/getStockSummary');
 
 export default {

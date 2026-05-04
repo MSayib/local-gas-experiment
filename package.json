@@ -12,7 +12,11 @@
     "build:client": "vite build --config vite.config.ts",
     "test": "jest",
     "type-check": "tsc --noEmit",
-    "deploy": "bun run build && npx clasp push --force"
+    "deploy": "bun run build && npx clasp push --force",
+    "db:migrate": "dbmate --migrations-dir db/migrations up",
+    "db:rollback": "dbmate --migrations-dir db/migrations down",
+    "db:status": "dbmate --migrations-dir db/migrations status",
+    "db:seed": "bun src/db/seed.ts"
   },
   "devDependencies": {
     "@google/clasp": "^3.3.0",

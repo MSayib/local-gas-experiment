@@ -9,8 +9,8 @@ node_modules/**
 
 # Config files
 tsconfig.json
-esbuild.config.js
-jest.config.js
+esbuild.config.cjs
+jest.config.cjs
 vite.config.ts
 package.json
 bun.lock
@@ -21,6 +21,10 @@ bun.lock
 docs/**
 README.md
 CLAUDE.md
+
+# Database (local only)
+db/**
+src/db/**
 
 # Local-only adapters
 **/PgDatabaseGateway.*

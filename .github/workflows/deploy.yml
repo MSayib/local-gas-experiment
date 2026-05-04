@@ -1,4 +1,4 @@
-name: Build, Test & Deploy to GAS
+name: Build & Test
 
 on:
   push:
@@ -39,37 +39,15 @@ jobs:
           test -f dist/bundle.gs && echo "✅ bundle.gs exists" || (echo "❌ bundle.gs missing" && exit 1)
           test -f dist/index.html && echo "✅ index.html exists" || (echo "❌ index.html missing" && exit 1)
           test -f dist/appsscript.json && echo "✅ appsscript.json exists" || (echo "❌ appsscript.json missing" && exit 1)
+          echo "📦 Bundle size: $(wc -c < dist/bundle.gs | tr -d ' ') bytes"
+          echo "🌐 Client size: $(wc -c < dist/index.html | tr -d ' ') bytes"
 
-  deploy:
-    needs: build-and-test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && secrets.CLASP_CREDENTIALS != ''
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Build bundle
-        run: bun run build
-
-      - name: Setup clasp credentials
-        run: |
-          echo '${{ secrets.CLASP_CREDENTIALS }}' > ~/.clasprc.json
-
-      - name: Setup clasp project
-        run: |
-          echo '{"scriptId":"${{ secrets.GAS_SCRIPT_ID }}","rootDir":"dist"}' > .clasp.json
-
-      - name: Push to Google Apps Script
-        run: npx clasp push --force
+  # ============================================
+  # Deploy to GAS — run manually from local:
+  #   bun run deploy
+  #
+  # Auto-deploy via CI requires either:
+  # 1. Google OAuth consent screen in "Production" mode
+  #    (refresh_token won't expire after 7 days)
+  # 2. Service Account with Apps Script API access
+  # ============================================

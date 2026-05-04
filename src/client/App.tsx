@@ -1,52 +1,82 @@
-import { useState, useEffect } from 'react';
-import { apiClient } from './lib/api';
+import { useState, useCallback } from 'react';
+import { useProducts, useSummary, useStockMovements, type ProductData, type CreateProductInput } from './lib/hooks/useData';
+import SummaryCards from './components/SummaryCards';
+import ProductTable from './components/ProductTable';
+import ProductForm from './components/ProductForm';
+import StockForm from './components/StockForm';
+import StockHistory from './components/StockHistory';
+import ConfirmDialog from './components/ConfirmDialog';
 
-interface ProductData {
-  id: string;
-  sku: string;
-  name: string;
-  price: number;
-  unit: string;
-  stock: number;
-  stockValue: number;
-}
-
-interface StockSummary {
-  totalProducts: number;
-  totalStock: number;
-  totalValue: number;
-  lowStockCount: number;
-}
+type ModalState =
+  | { type: 'none' }
+  | { type: 'createProduct' }
+  | { type: 'editProduct'; product: ProductData }
+  | { type: 'stockIn'; product: ProductData }
+  | { type: 'stockOut'; product: ProductData }
+  | { type: 'history'; product: ProductData }
+  | { type: 'deleteConfirm'; product: ProductData };
 
 export default function App() {
-  const [products, setProducts] = useState<ProductData[]>([]);
-  const [summary, setSummary] = useState<StockSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { products, loading, error, refresh, createProduct, updateProduct, deleteProduct } = useProducts();
+  const { summary, refresh: refreshSummary } = useSummary();
+  const { recordStockIn, recordStockOut } = useStockMovements();
+  const [modal, setModal] = useState<ModalState>({ type: 'none' });
   const [activeTab, setActiveTab] = useState<'gudang' | 'penjualan' | 'invoice'>('gudang');
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        const [productsData, summaryData] = await Promise.all([
-          apiClient.call<ProductData[]>('getProducts'),
-          apiClient.call<StockSummary>('getStockSummary'),
-        ]);
-        setProducts(productsData);
-        setSummary(summaryData);
-      } catch (err) {
-        console.error('Failed to load data:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadData();
+  const showToast = useCallback((message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const formatCurrency = (amount: number) =>
-    new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR' }).format(amount);
+  const closeModal = () => setModal({ type: 'none' });
+
+  const refreshAll = async () => {
+    await Promise.all([refresh(), refreshSummary()]);
+  };
+
+  const handleCreateProduct = async (input: CreateProductInput) => {
+    await createProduct(input);
+    await refreshSummary();
+    showToast(`Produk "${input.name}" berhasil ditambahkan`);
+  };
+
+  const handleUpdateProduct = async (input: CreateProductInput) => {
+    if (modal.type !== 'editProduct') return;
+    await updateProduct(modal.product.id, input);
+    await refreshSummary();
+    showToast(`Produk "${input.name}" berhasil diperbarui`);
+  };
+
+  const handleDeleteProduct = async () => {
+    if (modal.type !== 'deleteConfirm') return;
+    await deleteProduct(modal.product.id);
+    await refreshSummary();
+    showToast(`Produk "${modal.product.name}" berhasil dihapus`);
+  };
+
+  const handleStockIn = async (input: { productId: string; quantity: number; reference: string; notes?: string }) => {
+    await recordStockIn(input);
+    await refreshAll();
+    showToast(`Stok masuk berhasil dicatat`);
+  };
+
+  const handleStockOut = async (input: { productId: string; quantity: number; reference: string; notes?: string }) => {
+    await recordStockOut(input);
+    await refreshAll();
+    showToast(`Stok keluar berhasil dicatat`);
+  };
 
   return (
     <div className="app">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`toast toast-${toast.type}`}>
+          <span>{toast.type === 'success' ? '✅' : '❌'}</span>
+          <span>{toast.message}</span>
+        </div>
+      )}
+
       {/* Header */}
       <header className="header">
         <div className="header-content">
@@ -57,24 +87,13 @@ export default function App() {
 
       {/* Navigation Tabs */}
       <nav className="nav-tabs">
-        <button
-          className={`nav-tab ${activeTab === 'gudang' ? 'active' : ''}`}
-          onClick={() => setActiveTab('gudang')}
-        >
+        <button className={`nav-tab ${activeTab === 'gudang' ? 'active' : ''}`} onClick={() => setActiveTab('gudang')}>
           🏭 Gudang
         </button>
-        <button
-          className={`nav-tab ${activeTab === 'penjualan' ? 'active' : ''}`}
-          onClick={() => setActiveTab('penjualan')}
-          disabled
-        >
+        <button className={`nav-tab ${activeTab === 'penjualan' ? 'active' : ''}`} onClick={() => setActiveTab('penjualan')} disabled>
           📊 Penjualan
         </button>
-        <button
-          className={`nav-tab ${activeTab === 'invoice' ? 'active' : ''}`}
-          onClick={() => setActiveTab('invoice')}
-          disabled
-        >
+        <button className={`nav-tab ${activeTab === 'invoice' ? 'active' : ''}`} onClick={() => setActiveTab('invoice')} disabled>
           📄 Invoice
         </button>
       </nav>
@@ -86,82 +105,34 @@ export default function App() {
             <div className="spinner" />
             <p>Memuat data...</p>
           </div>
+        ) : error ? (
+          <div className="error-banner">
+            <p>❌ {error}</p>
+            <button className="btn btn-ghost" onClick={refresh}>Coba Lagi</button>
+          </div>
         ) : (
           <>
-            {/* Summary Cards */}
-            {summary && (
-              <div className="summary-grid">
-                <div className="card summary-card">
-                  <span className="card-icon">📦</span>
-                  <div className="card-info">
-                    <p className="card-label">Total Produk</p>
-                    <p className="card-value">{summary.totalProducts}</p>
-                  </div>
-                </div>
-                <div className="card summary-card">
-                  <span className="card-icon">📊</span>
-                  <div className="card-info">
-                    <p className="card-label">Total Stok</p>
-                    <p className="card-value">{summary.totalStock.toLocaleString('id-ID')}</p>
-                  </div>
-                </div>
-                <div className="card summary-card">
-                  <span className="card-icon">💰</span>
-                  <div className="card-info">
-                    <p className="card-label">Nilai Inventaris</p>
-                    <p className="card-value">{formatCurrency(summary.totalValue)}</p>
-                  </div>
-                </div>
-                <div className="card summary-card warning">
-                  <span className="card-icon">⚠️</span>
-                  <div className="card-info">
-                    <p className="card-label">Stok Rendah</p>
-                    <p className="card-value">{summary.lowStockCount}</p>
-                  </div>
-                </div>
-              </div>
-            )}
+            <SummaryCards summary={summary} />
 
-            {/* Product Table */}
             <div className="card">
               <div className="card-header">
                 <h2>Daftar Produk</h2>
-                <button className="btn btn-primary" disabled>
-                  + Tambah Produk
-                </button>
+                <div className="card-header-actions">
+                  <button className="btn btn-ghost" onClick={refreshAll}>🔄 Refresh</button>
+                  <button className="btn btn-primary" onClick={() => setModal({ type: 'createProduct' })}>
+                    + Tambah Produk
+                  </button>
+                </div>
               </div>
-              <div className="table-wrapper">
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>SKU</th>
-                      <th>Nama Produk</th>
-                      <th>Harga</th>
-                      <th>Satuan</th>
-                      <th>Stok</th>
-                      <th>Nilai Stok</th>
-                      <th>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {products.map((product) => (
-                      <tr key={product.id}>
-                        <td className="cell-mono">{product.sku}</td>
-                        <td>{product.name}</td>
-                        <td className="cell-right">{formatCurrency(product.price)}</td>
-                        <td>{product.unit}</td>
-                        <td className="cell-right">{product.stock.toLocaleString('id-ID')}</td>
-                        <td className="cell-right">{formatCurrency(product.stockValue)}</td>
-                        <td>
-                          <span className={`badge ${product.stock <= 10 ? 'badge-danger' : 'badge-success'}`}>
-                            {product.stock <= 10 ? 'Rendah' : 'Normal'}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+
+              <ProductTable
+                products={products}
+                onEdit={(p) => setModal({ type: 'editProduct', product: p })}
+                onDelete={(p) => setModal({ type: 'deleteConfirm', product: p })}
+                onStockIn={(p) => setModal({ type: 'stockIn', product: p })}
+                onStockOut={(p) => setModal({ type: 'stockOut', product: p })}
+                onViewHistory={(p) => setModal({ type: 'history', product: p })}
+              />
             </div>
           </>
         )}
@@ -171,6 +142,49 @@ export default function App() {
       <footer className="footer">
         <p>GAS TypeScript Experiment • Clean Architecture • {new Date().getFullYear()}</p>
       </footer>
+
+      {/* Modals */}
+      <ProductForm
+        isOpen={modal.type === 'createProduct'}
+        onClose={closeModal}
+        onSubmit={handleCreateProduct}
+      />
+
+      <ProductForm
+        isOpen={modal.type === 'editProduct'}
+        onClose={closeModal}
+        onSubmit={handleUpdateProduct}
+        product={modal.type === 'editProduct' ? modal.product : null}
+      />
+
+      <StockForm
+        isOpen={modal.type === 'stockIn'}
+        onClose={closeModal}
+        onSubmit={handleStockIn}
+        product={modal.type === 'stockIn' ? modal.product : null}
+        type="IN"
+      />
+
+      <StockForm
+        isOpen={modal.type === 'stockOut'}
+        onClose={closeModal}
+        onSubmit={handleStockOut}
+        product={modal.type === 'stockOut' ? modal.product : null}
+        type="OUT"
+      />
+
+      <StockHistory
+        isOpen={modal.type === 'history'}
+        onClose={closeModal}
+        product={modal.type === 'history' ? modal.product : null}
+      />
+
+      <ConfirmDialog
+        isOpen={modal.type === 'deleteConfirm'}
+        onClose={closeModal}
+        onConfirm={handleDeleteProduct}
+        product={modal.type === 'deleteConfirm' ? modal.product : null}
+      />
     </div>
   );
 }
